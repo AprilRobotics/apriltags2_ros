@@ -60,7 +60,18 @@
 #include <opencv2/core/core.hpp>
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/image_encodings.h>
-#include <tf/transform_broadcaster.h>
+
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/message_filter.h>
+#include <tf2_eigen/tf2_eigen.h>
+
+#include <tf2_sensor_msgs/tf2_sensor_msgs.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/transform_broadcaster.h>
+
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
 
 #include <apriltag.h>
 
@@ -180,8 +191,12 @@ class TagDetector
   bool remove_duplicates_;
   bool run_quietly_;
   bool publish_tf_;
-  tf::TransformBroadcaster tf_pub_;
-  std::string camera_tf_frame_;
+  std::string camera_tf_frame_, common_frame_;
+
+  tf2_ros::TransformBroadcaster tfBroadcaster_;
+  tf2_ros::Buffer tfBuffer_;
+  tf2_ros::TransformListener tfListener_;
+  double wait_for_tf_delay_;
 
  public:
 
@@ -234,6 +249,31 @@ class TagDetector
   void drawDetections(cv_bridge::CvImagePtr image);
 
   bool get_publish_tf() const { return publish_tf_; }
+};
+
+class Camera
+{
+  public:
+    Camera(ros::NodeHandle &node_handle, ros::NodeHandle &private_node_handle, const std::string &image_topic, const std::string &info_topic)
+    {
+      cameraImage_topic = image_topic;
+      cameraInfo_topic = info_topic;
+
+      cameraImage_sub = new message_filters::Subscriber<sensor_msgs::Image>(node_handle, cameraImage_topic, 10);
+      cameraInfo_sub = new message_filters::Subscriber<sensor_msgs::CameraInfo>(node_handle, cameraInfo_topic, 10);
+      cameraSync  = new message_filters::TimeSynchronizer<sensor_msgs::Image, sensor_msgs::CameraInfo>(*cameraImage_sub, *cameraInfo_sub, 10);
+
+      tag_detector = std::shared_ptr<TagDetector>(new TagDetector(private_node_handle));
+    }
+
+    std::string cameraImage_topic, cameraInfo_topic;
+
+    message_filters::Subscriber<sensor_msgs::Image>* cameraImage_sub;
+    message_filters::Subscriber<sensor_msgs::CameraInfo>* cameraInfo_sub;
+    message_filters::TimeSynchronizer<sensor_msgs::Image, sensor_msgs::CameraInfo> *cameraSync;
+    
+    cv_bridge::CvImagePtr cv_image;
+    std::shared_ptr<TagDetector> tag_detector;
 };
 
 } // namespace apriltag_ros
